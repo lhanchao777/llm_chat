@@ -1,5 +1,14 @@
 export type ModelName = "mimo-v2.5-pro" | "mimo-v2.5";
 
+export interface User {
+  id: string;
+  username: string;
+  passwordHash: string;
+  isAdmin: boolean;
+  tokenVersion: number;
+  createdAt: number;
+}
+
 export interface ToolCall {
   id: string;
   name: string;

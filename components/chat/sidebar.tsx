@@ -1,7 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { Plus, MessageSquare, Trash2 } from "lucide-react";
+import { Plus, MessageSquare, Trash2, User, LogOut } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 interface ConvSummary {
   id: string;
@@ -23,6 +24,8 @@ export function Sidebar({
   onNew,
   onDelete,
 }: SidebarProps) {
+  const { user, logout } = useAuth();
+
   return (
     <div className="w-60 bg-gray-950 text-gray-300 flex flex-col h-full shrink-0">
       {/* header */}
@@ -71,6 +74,30 @@ export function Sidebar({
           ))
         )}
       </div>
+
+      {/* user info footer */}
+      {user && (
+        <div className="p-3 border-t border-gray-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <User className="w-4 h-4 shrink-0 text-gray-500" />
+              <span className="text-sm truncate">{user.username}</span>
+              {user.isAdmin && (
+                <span className="text-[10px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded shrink-0">
+                  管理员
+                </span>
+              )}
+            </div>
+            <button
+              onClick={logout}
+              className="p-1.5 rounded hover:bg-gray-800 transition-colors shrink-0"
+              title="登出"
+            >
+              <LogOut className="w-4 h-4 text-gray-500" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

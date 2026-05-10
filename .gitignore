@@ -33,9 +33,8 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
-# local app data (chat history, user settings — never commit)
-/data/conversations/
-/data/settings.json
+# local app data (chat history, user settings, auth data — never commit)
+/data/
 
 # local logs
 *.log

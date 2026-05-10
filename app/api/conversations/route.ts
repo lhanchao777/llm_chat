@@ -1,29 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listConversations, saveConversation, loadServerSettings } from "@/lib/server-storage";
+import { listConversations, saveConversation } from "@/lib/server-storage";
+import { getAuthUser, AuthError } from "@/lib/auth";
 import { Conversation } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-// GET /api/conversations - list all conversations (summary only, no messages)
-export async function GET() {
-  const settings = await loadServerSettings();
-  const conversations = await listConversations(settings.storagePath || undefined);
-  // return without messages for the list view
-  const summaries = conversations.map(({ id, title, model, createdAt, updatedAt }) => ({
-    id,
-    title,
-    model,
-    createdAt,
-    updatedAt,
-  }));
-  return NextResponse.json(summaries);
+export async function GET(req: NextRequest) {
+  try {
+    const user = await getAuthUser(req);
+    const conversations = await listConversations(user.id);
+    const summaries = conversations.map(({ id, title, model, createdAt, updatedAt }) => ({
+      id,
+      title,
+      model,
+      createdAt,
+      updatedAt,
+    }));
+    return NextResponse.json(summaries);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
 }
 
-// POST /api/conversations - create a new conversation
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const conv: Conversation = body;
-  const settings = await loadServerSettings();
-  await saveConversation(conv, settings.storagePath || undefined);
-  return NextResponse.json(conv);
+  try {
+    const user = await getAuthUser(req);
+    const body = await req.json();
+    const conv: Conversation = body;
+    await saveConversation(user.id, conv);
+    return NextResponse.json(conv);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
 }

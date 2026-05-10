@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Settings, Globe } from "lucide-react";
+import { Settings, Globe, LogOut } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 import {
   Conversation,
   Message,
@@ -40,6 +41,7 @@ interface ConvSummary {
 }
 
 export default function Home() {
+  const { user, loading: authLoading, logout } = useAuth();
   const [conversationList, setConversationList] = useState<ConvSummary[]>([]);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -54,8 +56,16 @@ export default function Home() {
   const [searchResults, setSearchResults] = useState<Array<{ name: string; result: string; query?: Record<string, unknown> }>>([]);
   const abortRef = useRef<AbortController | null>(null);
 
-  // load from server on mount
+  // Redirect to login if not authenticated
   useEffect(() => {
+    if (!authLoading && !user) {
+      window.location.href = "/login";
+    }
+  }, [authLoading, user]);
+
+  // load from server on mount (after auth)
+  useEffect(() => {
+    if (!user) return;
     async function init() {
       const [list, s] = await Promise.all([
         fetchConversationList(),
@@ -66,7 +76,7 @@ export default function Home() {
       setMounted(true);
     }
     init();
-  }, []);
+  }, [user]);
 
   // load full conversation when activeId changes
   const skipLoadRef = useRef(false);
@@ -446,7 +456,8 @@ export default function Home() {
     [activeConv]
   );
 
-  if (!mounted) return null;
+  if (authLoading || !mounted) return null;
+  if (!user) return null;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -464,7 +475,8 @@ export default function Home() {
         {/* top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
           <h1 className="text-base font-semibold text-gray-800">LLM Chat</h1>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">{user.username}</span>
             {settings.enableSearch && (
               <button
                 onClick={() => setSearchPanelOpen(!searchPanelOpen)}
@@ -483,6 +495,13 @@ export default function Home() {
               className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <Settings className="w-5 h-5 text-gray-600" />
+            </button>
+            <button
+              onClick={logout}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="登出"
+            >
+              <LogOut className="w-5 h-5 text-gray-600" />
             </button>
           </div>
         </div>

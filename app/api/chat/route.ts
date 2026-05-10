@@ -5,6 +5,7 @@ import {
   convertToolsToOpenAIFormat,
 } from "@/lib/mcp-client";
 import { buildFullSystemPrompt } from "@/lib/system-prompt";
+import { getAuthUser, AuthError } from "@/lib/auth";
 import type { UserProfile, AssistantPersona } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -48,6 +49,16 @@ async function callLLM(
 }
 
 export async function POST(req: NextRequest) {
+  // Auth check
+  try {
+    await getAuthUser(req);
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return new Response(err.message, { status: err.status });
+    }
+    return new Response("Internal error", { status: 500 });
+  }
+
   const {
     messages, model, systemPrompt,
     enableSearch, mcpServerUrl, exaApiKey,

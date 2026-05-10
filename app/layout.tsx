@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/lib/auth-context";
 
 export const metadata: Metadata = {
   title: "LLM Chat",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN" className="h-full antialiased">
-      <body className="h-full overflow-hidden font-sans">{children}</body>
+      <body className="h-full overflow-hidden font-sans">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
