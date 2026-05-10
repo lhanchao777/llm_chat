@@ -64,7 +64,7 @@ export interface Conversation {
 
 ```typescript
 export const DEFAULT_SETTINGS: AppSettings = {
-  apiKey: "tp-ctay04hxdarto1y8nfehk858q89wsej01y4apnnwwuuiqd1i",
+  apiKey: "",
   apiBaseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
   storagePath: "",
   defaultSystemPrompt: "你是一个有用的AI助手。", // 新增默认值

@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Settings } from "lucide-react";
+import { Settings, Globe } from "lucide-react";
 import {
   Conversation,
   Message,
   ModelName,
   AppSettings,
   DEFAULT_SETTINGS,
+  ToolCall,
+  ToolResult,
 } from "@/lib/types";
 import { generateId, truncateText } from "@/lib/utils";
 import {
@@ -27,6 +29,7 @@ import {
   type SettingsSavePayload,
 } from "@/components/settings-dialog";
 import { SystemPromptDisplay } from "@/components/system-prompt-display";
+import { SearchResultsPanel } from "@/components/search-results-panel";
 
 interface ConvSummary {
   id: string;
@@ -47,6 +50,8 @@ export default function Home() {
   const [streamingReasoningId, setStreamingReasoningId] = useState<string | null>(null);
   const [streamingContentId, setStreamingContentId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<Array<{ name: string; result: string; query?: Record<string, unknown> }>>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   // load from server on mount
@@ -146,16 +151,32 @@ export default function Home() {
     setSettings(payload.settings);
     await saveServerSettings(payload.settings);
     const patch = payload.sessionPromptPatch;
-    if (!patch) return;
-    if (activeId !== patch.conversationId || !activeConv) return;
-    if (activeConv.messages.length > 0) return;
-    const updated: Conversation = {
-      ...activeConv,
-      systemPrompt: patch.text,
-      updatedAt: Date.now(),
-    };
-    await updateConversation(updated);
-    setActiveConv(updated);
+    const personaPatch = payload.assistantPersonaPatch;
+    if (!patch && !personaPatch) return;
+    if (!activeId || !activeConv) return;
+
+    let updated: Conversation | null = null;
+
+    if (patch && activeId === patch.conversationId && activeConv.messages.length === 0) {
+      updated = {
+        ...activeConv,
+        systemPrompt: patch.text,
+        updatedAt: Date.now(),
+      };
+    }
+
+    if (personaPatch && activeId === personaPatch.conversationId && activeConv.messages.length === 0) {
+      updated = {
+        ...(updated || activeConv),
+        assistantPersona: personaPatch.persona,
+        updatedAt: Date.now(),
+      };
+    }
+
+    if (updated) {
+      await updateConversation(updated);
+      setActiveConv(updated);
+    }
   }, [activeId, activeConv]);
 
   const handleSend = useCallback(
@@ -215,7 +236,16 @@ export default function Home() {
 
       try {
         const allMessages = [
-          ...currentConv.messages.map((m) => ({ role: m.role, content: m.content })),
+          ...currentConv.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+            ...(m.toolCalls ? { tool_calls: m.toolCalls.map((tc, i) => ({
+              id: tc.id,
+              type: "function",
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            }))} : {}),
+            ...(m.toolResults ? { tool_call_id: m.toolResults[0]?.toolCallId } : {}),
+          })),
           { role: "user" as const, content: userContent },
         ];
 
@@ -228,6 +258,12 @@ export default function Home() {
             messages: allMessages,
             model: selectedModel,
             systemPrompt: currentConv.systemPrompt || settings.defaultSystemPrompt,
+            enableSearch: settings.enableSearch,
+            mcpServerUrl: settings.mcpServerUrl,
+            exaApiKey: settings.exaApiKey,
+            userProfile: settings.userProfile,
+            userLocation: settings.userLocation,
+            assistantPersona: currentConv.assistantPersona,
           }),
           signal: abortRef.current.signal,
         });
@@ -243,6 +279,8 @@ export default function Home() {
         let reasoning = "";
         let content = "";
         let currentEvent = "";
+        const currentToolCalls: ToolCall[] = [];
+        const currentToolResults: ToolResult[] = [];
 
         const updateLocalConv = () => {
           setActiveConv((prev) => {
@@ -251,7 +289,13 @@ export default function Home() {
               ...prev,
               messages: prev.messages.map((m) =>
                 m.id === assistantMsg.id
-                  ? { ...m, reasoning, content }
+                  ? {
+                      ...m,
+                      reasoning,
+                      content,
+                      toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
+                      toolResults: currentToolResults.length > 0 ? [...currentToolResults] : undefined,
+                    }
                   : m
               ),
             };
@@ -284,6 +328,32 @@ export default function Home() {
 
               try {
                 const parsed = JSON.parse(data);
+
+                if (currentEvent === "tool_call") {
+                  currentToolCalls.push({
+                    id: parsed.id,
+                    name: parsed.name,
+                    arguments: parsed.arguments,
+                  });
+                  updateLocalConv();
+                  continue;
+                }
+
+                if (currentEvent === "tool_result") {
+                  currentToolResults.push({
+                    toolCallId: parsed.toolCallId,
+                    result: parsed.result,
+                  });
+                  // Also add to search results panel
+                  setSearchResults((prev) => [
+                    ...prev,
+                    { name: parsed.name, result: parsed.result, query: currentToolCalls.find((tc) => tc.id === parsed.toolCallId)?.arguments },
+                  ]);
+                  setSearchPanelOpen(true);
+                  updateLocalConv();
+                  continue;
+                }
+
                 if (parsed.delta !== undefined && parsed.delta !== "") {
                   if (currentEvent === "reasoning") {
                     reasoning += parsed.delta;
@@ -306,7 +376,13 @@ export default function Home() {
           title: isFirstMessage ? truncateText(userContent) : currentConv.title,
           messages: currentConv.messages.concat([
             userMsg,
-            { ...assistantMsg, reasoning, content },
+            {
+              ...assistantMsg,
+              reasoning,
+              content,
+              toolCalls: currentToolCalls.length > 0 ? currentToolCalls : undefined,
+              toolResults: currentToolResults.length > 0 ? currentToolResults : undefined,
+            },
           ]),
           updatedAt: Date.now(),
         };
@@ -352,6 +428,11 @@ export default function Home() {
       selectedModel,
       refreshList,
       settings.defaultSystemPrompt,
+      settings.enableSearch,
+      settings.mcpServerUrl,
+      settings.exaApiKey,
+      settings.userProfile,
+      settings.userLocation,
     ]
   );
 
@@ -383,18 +464,35 @@ export default function Home() {
         {/* top bar */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
           <h1 className="text-base font-semibold text-gray-800">LLM Chat</h1>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <Settings className="w-5 h-5 text-gray-600" />
-          </button>
+          <div className="flex items-center gap-1">
+            {settings.enableSearch && (
+              <button
+                onClick={() => setSearchPanelOpen(!searchPanelOpen)}
+                className={`p-2 rounded-lg transition-colors ${
+                  searchPanelOpen
+                    ? "bg-blue-100 text-blue-600"
+                    : "hover:bg-gray-100 text-gray-600"
+                }`}
+                title="搜索结果面板"
+              >
+                <Globe className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <Settings className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
         </div>
 
         {/* system prompt display */}
         <SystemPromptDisplay
           systemPrompt={activeConversation?.systemPrompt}
           defaultSystemPrompt={settings.defaultSystemPrompt}
+          assistantPersona={activeConversation?.assistantPersona}
+          isConversationStarted={activeConversation != null && activeConversation.messages.length > 0}
         />
 
         {/* messages */}
@@ -412,6 +510,15 @@ export default function Home() {
           onModelChange={handleModelChange}
         />
       </div>
+
+      {/* search results panel */}
+      {settings.enableSearch && (
+        <SearchResultsPanel
+          results={searchResults}
+          open={searchPanelOpen}
+          onClose={() => setSearchPanelOpen(false)}
+        />
+      )}
 
       {/* settings dialog */}
       <SettingsDialog
